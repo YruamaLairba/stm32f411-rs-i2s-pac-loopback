@@ -9,9 +9,9 @@
 // use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
 
 use crate::hal::{pac, prelude::*};
-use pac::interrupt;
 use core::panic::PanicInfo;
 use cortex_m_rt::entry;
+use pac::interrupt;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal as hal;
 
@@ -32,6 +32,8 @@ fn i2s_sr_check() {
         }
     }
 }
+
+const MCK_USE: bool = false;
 
 #[entry]
 fn main() -> ! {
@@ -64,8 +66,13 @@ fn main() -> ! {
     unsafe {
         let rcc = &(*pac::RCC::ptr());
         //setup
-        rcc.plli2scfgr
-            .write(|w| w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(5));
+        rcc.plli2scfgr.write(|w| {
+            if MCK_USE {
+                w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(5)
+            } else {
+                w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(4)
+            }
+        });
         //run the clock
         rcc.cr.write(|w| w.plli2son().set_bit());
         //wait a stable clock
@@ -90,12 +97,16 @@ fn main() -> ! {
         pac::NVIC::unmask(pac::Interrupt::SPI2);
     }
 
-
     //Spi2 setup for i2s mode
     unsafe {
         let spi2 = &(*pac::SPI2::ptr());
-        spi2.i2spr
-            .write(|w| w.i2sdiv().bits(2).odd().set_bit().mckoe().enabled());
+        spi2.i2spr.write(|w| {
+            if MCK_USE {
+                w.i2sdiv().bits(2).odd().set_bit().mckoe().enabled()
+            } else {
+                w.i2sdiv().bits(12).odd().set_bit().mckoe().disabled()
+            }
+        });
         spi2.i2scfgr.write(|w| {
             w.i2smod()
                 .i2smode() //
@@ -166,7 +177,6 @@ fn SPI2() {
         }
     }
 }
-
 
 #[inline(never)]
 #[panic_handler]
