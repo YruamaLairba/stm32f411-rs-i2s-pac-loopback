@@ -69,7 +69,7 @@ fn main() -> ! {
         //run the clock
         rcc.cr.write(|w| w.plli2son().set_bit());
         //wait a stable clock
-        while rcc.cr.read().plli2srdy().bit() {}
+        while rcc.cr.read().plli2srdy().bit_is_clear() {}
     }
     //i2s gpio
     //  SD pb15,pc3
