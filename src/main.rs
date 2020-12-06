@@ -249,7 +249,7 @@ fn SPI5() {
         }
         if spi5.sr.read().rxne().bit() {
             let data = spi5.dr.read().dr().bits();
-            rprintln!("SPI5 rx {}",data);
+            rprintln!("SPI5 rx {:#04X}",data);
         }
     }
 }
