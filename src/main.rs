@@ -60,7 +60,8 @@ fn main() -> ! {
         let rcc = &(*pac::RCC::ptr());
         rcc.apb1enr
             .modify(|_, w| w.pwren().set_bit().spi2en().set_bit());
-        rcc.apb2enr.modify(|_, w| w.spi5en().set_bit().syscfgen().set_bit());
+        rcc.apb2enr
+            .modify(|_, w| w.spi5en().set_bit().syscfgen().set_bit());
     }
 
     //setup  and startup common i2s clock
@@ -98,19 +99,23 @@ fn main() -> ! {
     let _pb8 = gpiob.pb8.into_alternate_af6(); //SD DIN
 
     let mut _pb1 = gpiob.pb1.into_alternate_af6(); //WS LRCK
-    //_pb1.make_interrupt_source(&mut device.SYSCFG);
-    //_pb1.enable_interrupt(&mut device.EXTI);
-    //_pb1.trigger_on_edge(&mut device.EXTI, Edge::FALLING);
-    //let _pb1 = _pb1.into_alternate_af6();
+                                                   //_pb1.make_interrupt_source(&mut device.SYSCFG);
+                                                   //_pb1.enable_interrupt(&mut device.EXTI);
+                                                   //_pb1.trigger_on_edge(&mut device.EXTI, Edge::FALLING);
+                                                   //let _pb1 = _pb1.into_alternate_af6();
+
     unsafe {
         let syscfg = &(*pac::SYSCFG::ptr());
-        syscfg.exticr1.modify(|_,w| w.exti0().bits(0b0001));
+        //EXTI0 interrupt on gpiob
+        syscfg.exticr1.modify(|_, w| w.exti0().bits(0b0001));
         let exti = &(*pac::EXTI::ptr());
-        exti.imr.modify(|_,w| w.mr0().set_bit());
-        exti.ftsr.modify(|_,w| w.tr0().set_bit());
+        //let masked EXTI0 interrupt
+        exti.imr.modify(|_, w| w.mr0().set_bit());
+        //trigger interrupt on rising edge
+        exti.rtsr.modify(|_, w| w.tr0().set_bit());
+        //unmask EXTI0 interrupt
         pac::NVIC::unmask(pac::Interrupt::EXTI0);
     };
-
 
     //i2s2 interrupt
     unsafe {
@@ -187,7 +192,7 @@ fn main() -> ! {
     //enable i2s5 and then i2s2
     unsafe {
         let spi5 = &(*pac::SPI5::ptr());
-        spi5.i2scfgr.modify(|_, w| w.i2se().disabled());
+        spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
         let spi2 = &(*pac::SPI2::ptr());
         spi2.i2scfgr.modify(|_, w| w.i2se().enabled());
     }
@@ -229,14 +234,16 @@ fn main() -> ! {
             let spi5 = &(*pac::SPI5::ptr());
             let gpiob = &(*pac::GPIOB::ptr());
             while !spi2.sr.read().txe().bit() {}
-            spi2.dr.modify(|_, w| w.dr().bits(0xFEED));
-            rprintln!(
-                "CHSIDE {:?} {:?}  WS {:?} {:?} ",
-                spi2.sr.read().chside().variant(),
-                spi5.sr.read().chside().variant(),
-                gpiob.idr.read().idr12().variant(),
-                gpiob.idr.read().idr1().variant()
-            );
+            spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0000));
+            while !spi2.sr.read().txe().bit() {}
+            spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0110));
+            //rprintln!(
+            //    "CHSIDE {:?} {:?}  WS {:?} {:?} ",
+            //    spi2.sr.read().chside().variant(),
+            //    spi5.sr.read().chside().variant(),
+            //    gpiob.idr.read().idr12().variant(),
+            //    gpiob.idr.read().idr1().variant()
+            //);
         }
     }
 }
@@ -260,10 +267,16 @@ fn SPI2() {
 #[interrupt]
 fn SPI5() {
     unsafe {
+        //rprintln!("SPI5 ");
         let spi5 = &(*pac::SPI5::ptr());
         if spi5.sr.read().fre().bit() {
             rprintln!("SPI5 Frame Error");
             spi5.i2scfgr.modify(|_, w| w.i2se().disabled());
+            let exti = &(*pac::EXTI::ptr());
+            //unmask EXTI0 interrupt
+            exti.imr.modify(|_, w| w.mr0().set_bit());
+            //trigger an interrupt
+            exti.swier.modify(|_, w| w.swier0().set_bit());
         }
         if spi5.sr.read().ovr().bit() {
             rprintln!("SPI5 Overrun");
@@ -273,7 +286,8 @@ fn SPI5() {
         }
         if spi5.sr.read().rxne().bit() {
             let data = spi5.dr.read().dr().bits();
-            rprintln!("SPI5 rx {:#04X}", data);
+            let side = spi5.sr.read().chside().variant();
+            //rprintln!("SPI5 rx {:#016b} {:?}", data, side);
         }
     }
 }
@@ -281,9 +295,20 @@ fn SPI5() {
 #[interrupt]
 fn EXTI0() {
     unsafe {
+        let gpiob = &(*pac::GPIOB::ptr());
+        let ws = gpiob.idr.read().idr1().bit();
         let exti = &(*pac::EXTI::ptr());
-        exti.pr.modify(|_,w| w.pr0().set_bit());
-        rprintln!("----------------------------");
+        //erase the event
+        exti.pr.modify(|_, w| w.pr0().set_bit());
+        rprintln!("EXTI0");
+        //look for pb1 rising edge
+        if ws {
+            //disable EXTI0 interrupt
+            exti.imr.modify(|_, w| w.mr0().clear_bit());
+            let spi5 = &(*pac::SPI5::ptr());
+            spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
+            rprintln!("Resynced");
+        }
     }
 }
 
