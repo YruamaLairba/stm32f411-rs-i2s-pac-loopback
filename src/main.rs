@@ -114,7 +114,7 @@ fn main() -> ! {
     unsafe {
         let spi2 = &(*pac::SPI2::ptr());
         spi2.cr2
-            .modify(|_, w| w.txeie().set_bit().rxneie().clear_bit().errie().set_bit());
+            .modify(|_, w| w.txeie().clear_bit().rxneie().clear_bit().errie().set_bit());
         pac::NVIC::unmask(pac::Interrupt::SPI2);
     }
 
@@ -178,45 +178,15 @@ fn main() -> ! {
         spi2.i2scfgr.modify(|_, w| w.i2se().enabled());
     }
 
-    //let mut data_iter = data.iter().cycle();
-
     loop {
-        //if let Some(data) = data_iter.next() {
-        //    let data = *data as u32;
-        //    let l = data;
-        //    let r = data;
-
-        //    unsafe {
-        //        let spi2 = &(*pac::SPI2::ptr());
-        //        while !spi2.sr.read().txe().bit() {}
-        //        spi2.dr.modify(|_, w| w.dr().bits((l >> 16) as u16));
-        //        i2s_sr_check();
-        //        while !spi2.sr.read().txe().bit() {}
-        //        spi2.dr.modify(|_, w| w.dr().bits((l & 0x00FF) as u16));
-        //        i2s_sr_check();
-        //        while !spi2.sr.read().txe().bit() {}
-        //        spi2.dr.modify(|_, w| w.dr().bits((r >> 16) as u16));
-        //        i2s_sr_check();
-        //        while !spi2.sr.read().txe().bit() {}
-        //        spi2.dr.modify(|_, w| w.dr().bits((r & 0x00FF) as u16));
-        //        i2s_sr_check();
-        //    }
-        //}
         unsafe {
             let spi2 = &(*pac::SPI2::ptr());
-            let spi5 = &(*pac::SPI5::ptr());
-            let gpiob = &(*pac::GPIOB::ptr());
             while !spi2.sr.read().txe().bit() {}
-            spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0000));
-            while !spi2.sr.read().txe().bit() {}
-            spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0110));
-            //rprintln!(
-            //    "CHSIDE {:?} {:?}  WS {:?} {:?} ",
-            //    spi2.sr.read().chside().variant(),
-            //    spi5.sr.read().chside().variant(),
-            //    gpiob.idr.read().idr12().variant(),
-            //    gpiob.idr.read().idr1().variant()
-            //);
+            if spi2.sr.read().chside().bit_is_clear() {
+                spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0000));
+            } else {
+                spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0110));
+            }
         }
     }
 }
