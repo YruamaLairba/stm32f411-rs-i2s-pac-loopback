@@ -2,7 +2,7 @@
 authors = ["Yruama_Lairba <yruama_lairba@hotmail.com>"]
 edition = "2018"
 readme = "README.md"
-name = "i2s-loopback"
+name = "i2s-pac-loopback"
 version = "0.1.0"
 
 [dependencies]
@@ -31,6 +31,6 @@ features = ["rt", "stm32f411"] # replace the model of your microcontroller here
 
 # this lets you use `cargo fix`!
 [[bin]]
-name = "i2s-loopback"
+name = "i2s-pac-loopback"
 test = false
 bench = false
