@@ -8,7 +8,7 @@
 // use panic_itm as _; // logs messages over ITM; requires ITM support
 // use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
 
-use crate::hal::{gpio::Edge, gpio::ExtiPin, pac, prelude::*};
+use crate::hal::{pac, prelude::*};
 use core::panic::PanicInfo;
 use cortex_m_rt::entry;
 use pac::interrupt;
@@ -30,7 +30,7 @@ const MCK: bool = false;
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
-    let mut device = pac::Peripherals::take().unwrap();
+    let device = pac::Peripherals::take().unwrap();
     let gpiob = device.GPIOB.split();
     let gpioc = device.GPIOC.split();
     let rcc = device.RCC.constrain();
@@ -209,28 +209,39 @@ fn SPI2() {
 
 #[interrupt]
 fn SPI5() {
+    static mut COUNT: u32 = 0;
     unsafe {
-        //rprintln!("SPI5 ");
         let spi5 = &(*pac::SPI5::ptr());
         if spi5.sr.read().fre().bit() {
             rprintln!("SPI5 Frame Error");
+            //resynchronization
             spi5.i2scfgr.modify(|_, w| w.i2se().disabled());
-            let exti = &(*pac::EXTI::ptr());
-            //unmask EXTI0 interrupt
-            exti.imr.modify(|_, w| w.mr0().set_bit());
-            //trigger an interrupt
-            exti.swier.modify(|_, w| w.swier0().set_bit());
-        }
-        if spi5.sr.read().ovr().bit() {
+            let gpiob = &(*pac::GPIOB::ptr());
+            let ws = gpiob.idr.read().idr1().bit();
+            if ws {
+                spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
+                rprintln!("Resynced (SPI5)");
+            } else {
+                let exti = &(*pac::EXTI::ptr());
+                exti.imr.modify(|_, w| w.mr0().set_bit());
+            }
+        } else if spi5.sr.read().ovr().bit() {
             rprintln!("SPI5 Overrun");
-        }
-        if spi5.sr.read().udr().bit() {
+            //this sequence reset the interrupt
+            let _ = spi5.dr.read().bits();
+            let _ = spi5.sr.read().bits();
+        } else if spi5.sr.read().udr().bit() {
             rprintln!("SPI5 underrun");
-        }
-        if spi5.sr.read().rxne().bit() {
-            let data = spi5.dr.read().dr().bits();
-            let side = spi5.sr.read().chside().variant();
-            //rprintln!("SPI5 rx {:#016b} {:?}", data, side);
+            //clear the interrupt
+            let _ = spi5.sr.read().bits();
+        } else if spi5.sr.read().rxne().bit() {
+            let _data = spi5.dr.read().dr().bits();
+            let _side = spi5.sr.read().chside().variant();
+            *COUNT += 1;
+            if *COUNT == 8_000 * 2 {
+                rprintln!("8000 frame received");
+                *COUNT = 0;
+            }
         }
     }
 }
@@ -243,14 +254,13 @@ fn EXTI0() {
         let exti = &(*pac::EXTI::ptr());
         //erase the event
         exti.pr.modify(|_, w| w.pr0().set_bit());
-        rprintln!("EXTI0");
-        //look for pb1 rising edge
+        //look if ws/pb1 is high
         if ws {
             //disable EXTI0 interrupt
             exti.imr.modify(|_, w| w.mr0().clear_bit());
             let spi5 = &(*pac::SPI5::ptr());
             spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
-            rprintln!("Resynced");
+            rprintln!("Resynced (EXTI0)");
         }
     }
 }
