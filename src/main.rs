@@ -15,24 +15,6 @@ use pac::interrupt;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal as hal;
 
-fn i2s_sr_check() {
-    unsafe {
-        let spi2 = &(*pac::SPI2::ptr());
-        if spi2.sr.read().fre().bit() {
-            rprintln!("Frame Error");
-        }
-        if spi2.sr.read().ovr().bit() {
-            rprintln!("Overrun");
-        }
-        if spi2.sr.read().udr().bit() {
-            rprintln!("underrun");
-        }
-        if !spi2.sr.read().txe().bit() {
-            rprintln!("buffer not empty");
-        }
-    }
-}
-
 const MCK_USE: bool = false;
 
 #[entry]
@@ -72,7 +54,7 @@ fn main() -> ! {
             if MCK_USE {
                 w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(5)
             } else {
-                w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(4)
+                w.plli2sr().bits(4).plli2sn().bits(64).plli2sm().bits(2)
             }
         });
         //run the clock
@@ -80,36 +62,36 @@ fn main() -> ! {
         //wait a stable clock
         while rcc.cr.read().plli2srdy().bit_is_clear() {}
     }
-    //i2s2 gpio
-    //  CK pb10,pb13,pc7,*pd3
-    //  SD pb15,pc3
-    //  WS pb9, pb12
-    //  MCK pa3, pa6, pc6,
 
-    let _pb13 = gpiob.pb13.into_alternate_af5(); //CK BCK
-    let _pb15 = gpiob.pb15.into_alternate_af5(); //SD DIN
-    let _pb12 = gpiob.pb12.into_alternate_af5(); //WS LRCK
-    let _pc6 = gpioc.pc6.into_alternate_af5(); //MCK SCK
+    //i2s2 gpio
+    //Note, on nucleo board possible i2s2 gpio are:
+    //  CK: pb10, pb13, pc7
+    //  SD: pb15, pc3
+    //  WS: pb9, pb12
+    //  MCK: pa3, pa6, pc6
+
+    let _pb13 = gpiob.pb13.into_alternate_af5(); //CK
+    let _pb15 = gpiob.pb15.into_alternate_af5(); //SD
+    let _pb12 = gpiob.pb12.into_alternate_af5(); //WS
+    let _pc6 = gpioc.pc6.into_alternate_af5(); //MCK
 
     //i2s5 gpio
+    //Note, on nucleo board possible i2s5 gpio are:
     // CK pb0
     // SD pa10, pb8
     // WS pb1
     let _pb0 = gpiob.pb0.into_alternate_af6(); //CK BCK
     let _pb8 = gpiob.pb8.into_alternate_af6(); //SD DIN
-
     let mut _pb1 = gpiob.pb1.into_alternate_af6(); //WS LRCK
-                                                   //_pb1.make_interrupt_source(&mut device.SYSCFG);
-                                                   //_pb1.enable_interrupt(&mut device.EXTI);
-                                                   //_pb1.trigger_on_edge(&mut device.EXTI, Edge::FALLING);
-                                                   //let _pb1 = _pb1.into_alternate_af6();
 
+    //Setup an interrupt that can be triggered by pb1
+    //Note: The hal doesn't allow to manipulate interrupt for pin in aternate mode
     unsafe {
         let syscfg = &(*pac::SYSCFG::ptr());
-        //EXTI0 interrupt on gpiob
+        //EXTI0 interrupt on gpiob, pb0 to pb3 will trigger it
         syscfg.exticr1.modify(|_, w| w.exti0().bits(0b0001));
         let exti = &(*pac::EXTI::ptr());
-        //let masked EXTI0 interrupt
+        //mask EXTI0 interrupt
         exti.imr.modify(|_, w| w.mr0().set_bit());
         //trigger interrupt on rising edge
         exti.rtsr.modify(|_, w| w.tr0().set_bit());
@@ -121,7 +103,7 @@ fn main() -> ! {
     unsafe {
         let spi2 = &(*pac::SPI2::ptr());
         spi2.cr2
-            .modify(|_, w| w.txeie().clear_bit().rxneie().clear_bit().errie().set_bit());
+            .modify(|_, w| w.txeie().set_bit().rxneie().clear_bit().errie().set_bit());
         pac::NVIC::unmask(pac::Interrupt::SPI2);
     }
 
@@ -140,7 +122,7 @@ fn main() -> ! {
             if MCK_USE {
                 w.i2sdiv().bits(2).odd().set_bit().mckoe().enabled()
             } else {
-                w.i2sdiv().bits(12).odd().set_bit().mckoe().disabled()
+                w.i2sdiv().bits(62).odd().set_bit().mckoe().disabled()
             }
         });
         spi2.i2scfgr.modify(|_, w| {
@@ -195,14 +177,6 @@ fn main() -> ! {
         spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
         let spi2 = &(*pac::SPI2::ptr());
         spi2.i2scfgr.modify(|_, w| w.i2se().enabled());
-    }
-
-    rprintln!("init done");
-    //check spi2 status
-    unsafe {
-        let spi2 = &(*pac::SPI2::ptr());
-        let spi2_sr = *((pac::SPI2::ptr() as usize + 0x08) as *const u32);
-        rprintln!("{:#032b} {}", spi2_sr, spi2.sr.read().txe().bit());
     }
 
     //let mut data_iter = data.iter().cycle();
