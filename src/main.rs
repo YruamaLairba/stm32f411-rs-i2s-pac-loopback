@@ -15,7 +15,17 @@ use pac::interrupt;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal as hal;
 
-const MCK_USE: bool = false;
+//PLLI2S clock configuration
+const PLLI2SM: u8 = 2;
+const PLLI2SN: u16 = 64;
+const PLLI2SR: u8 = 4;
+
+//Clock configuration of the used i2s interface
+const I2SDIV: u8 = 62;
+const ODD: bool = true;
+
+//generate Master Clock ? Modifying this require to adapt the i2s clock
+const MCK: bool = false;
 
 #[entry]
 fn main() -> ! {
@@ -51,11 +61,12 @@ fn main() -> ! {
         let rcc = &(*pac::RCC::ptr());
         //setup
         rcc.plli2scfgr.modify(|_, w| {
-            if MCK_USE {
-                w.plli2sr().bits(5).plli2sn().bits(192).plli2sm().bits(5)
-            } else {
-                w.plli2sr().bits(4).plli2sn().bits(64).plli2sm().bits(2)
-            }
+            w.plli2sr()
+                .bits(PLLI2SR)
+                .plli2sn()
+                .bits(PLLI2SN)
+                .plli2sm()
+                .bits(PLLI2SM)
         });
         //run the clock
         rcc.cr.modify(|_, w| w.plli2son().set_bit());
@@ -118,13 +129,8 @@ fn main() -> ! {
     //Spi2 setup for i2s mode
     unsafe {
         let spi2 = &(*pac::SPI2::ptr());
-        spi2.i2spr.modify(|_, w| {
-            if MCK_USE {
-                w.i2sdiv().bits(2).odd().set_bit().mckoe().enabled()
-            } else {
-                w.i2sdiv().bits(62).odd().set_bit().mckoe().disabled()
-            }
-        });
+        spi2.i2spr
+            .modify(|_, w| w.i2sdiv().bits(I2SDIV).odd().bit(ODD).mckoe().bit(MCK));
         spi2.i2scfgr.modify(|_, w| {
             w.i2smod()
                 .i2smode() //
@@ -146,13 +152,6 @@ fn main() -> ! {
     //Spi5 setup for i2s mode
     unsafe {
         let spi5 = &(*pac::SPI5::ptr());
-        spi5.i2spr.modify(|_, w| {
-            if MCK_USE {
-                w.i2sdiv().bits(2).odd().set_bit().mckoe().enabled()
-            } else {
-                w.i2sdiv().bits(12).odd().set_bit().mckoe().disabled()
-            }
-        });
         spi5.i2scfgr.modify(|_, w| {
             w.i2smod()
                 .i2smode() //
