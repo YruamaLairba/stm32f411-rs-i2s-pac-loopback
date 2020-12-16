@@ -8,10 +8,10 @@
 // use panic_itm as _; // logs messages over ITM; requires ITM support
 // use panic_semihosting as _; // logs messages to the host stderr; requires a debugger
 
-use crate::hal::{pac, prelude::*};
+use crate::hal::{stm32, prelude::*};
 use core::panic::PanicInfo;
 use cortex_m_rt::entry;
-use pac::interrupt;
+use stm32::interrupt;
 use rtt_target::{rprintln, rtt_init_print};
 use stm32f4xx_hal as hal;
 
@@ -30,7 +30,7 @@ const MCK: bool = false;
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
-    let device = pac::Peripherals::take().unwrap();
+    let device = stm32::Peripherals::take().unwrap();
     let gpiob = device.GPIOB.split();
     let gpioc = device.GPIOC.split();
     let rcc = device.RCC.constrain();
@@ -49,7 +49,7 @@ fn main() -> ! {
         .freeze();
     //enable system clock for APB bus SPI2 and SPI5
     unsafe {
-        let rcc = &(*pac::RCC::ptr());
+        let rcc = &(*stm32::RCC::ptr());
         rcc.apb1enr
             .modify(|_, w| w.pwren().set_bit().spi2en().set_bit());
         rcc.apb2enr
@@ -58,7 +58,7 @@ fn main() -> ! {
 
     //setup  and startup common i2s clock
     unsafe {
-        let rcc = &(*pac::RCC::ptr());
+        let rcc = &(*stm32::RCC::ptr());
         //setup
         rcc.plli2scfgr.modify(|_, w| {
             w.plli2sr()
@@ -98,37 +98,37 @@ fn main() -> ! {
     //Setup an interrupt that can be triggered by pb1
     //Note: The hal doesn't allow to manipulate interrupt for pin in aternate mode
     unsafe {
-        let syscfg = &(*pac::SYSCFG::ptr());
+        let syscfg = &(*stm32::SYSCFG::ptr());
         //EXTI0 interrupt on gpiob, pb0 to pb3 will trigger it
         syscfg.exticr1.modify(|_, w| w.exti0().bits(0b0001));
-        let exti = &(*pac::EXTI::ptr());
+        let exti = &(*stm32::EXTI::ptr());
         //mask EXTI0 interrupt
         exti.imr.modify(|_, w| w.mr0().set_bit());
         //trigger interrupt on rising edge
         exti.rtsr.modify(|_, w| w.tr0().set_bit());
         //unmask EXTI0 interrupt
-        pac::NVIC::unmask(pac::Interrupt::EXTI0);
+        stm32::NVIC::unmask(stm32::Interrupt::EXTI0);
     };
 
     //i2s2 interrupt
     unsafe {
-        let spi2 = &(*pac::SPI2::ptr());
+        let spi2 = &(*stm32::SPI2::ptr());
         spi2.cr2
             .modify(|_, w| w.txeie().clear_bit().rxneie().clear_bit().errie().set_bit());
-        pac::NVIC::unmask(pac::Interrupt::SPI2);
+        stm32::NVIC::unmask(stm32::Interrupt::SPI2);
     }
 
     //i2s5 interrupt
     unsafe {
-        let spi5 = &(*pac::SPI5::ptr());
+        let spi5 = &(*stm32::SPI5::ptr());
         spi5.cr2
             .modify(|_, w| w.txeie().clear_bit().rxneie().set_bit().errie().set_bit());
-        pac::NVIC::unmask(pac::Interrupt::SPI5);
+        stm32::NVIC::unmask(stm32::Interrupt::SPI5);
     }
 
     //Spi2 setup for i2s mode
     unsafe {
-        let spi2 = &(*pac::SPI2::ptr());
+        let spi2 = &(*stm32::SPI2::ptr());
         spi2.i2spr
             .modify(|_, w| w.i2sdiv().bits(I2SDIV).odd().bit(ODD).mckoe().bit(MCK));
         spi2.i2scfgr.modify(|_, w| {
@@ -151,7 +151,7 @@ fn main() -> ! {
 
     //Spi5 setup for i2s mode
     unsafe {
-        let spi5 = &(*pac::SPI5::ptr());
+        let spi5 = &(*stm32::SPI5::ptr());
         spi5.i2scfgr.modify(|_, w| {
             w.i2smod()
                 .i2smode() //
@@ -172,15 +172,15 @@ fn main() -> ! {
 
     //enable i2s5 and then i2s2
     unsafe {
-        let spi5 = &(*pac::SPI5::ptr());
+        let spi5 = &(*stm32::SPI5::ptr());
         spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
-        let spi2 = &(*pac::SPI2::ptr());
+        let spi2 = &(*stm32::SPI2::ptr());
         spi2.i2scfgr.modify(|_, w| w.i2se().enabled());
     }
 
     loop {
         unsafe {
-            let spi2 = &(*pac::SPI2::ptr());
+            let spi2 = &(*stm32::SPI2::ptr());
             while !spi2.sr.read().txe().bit() {}
             if spi2.sr.read().chside().bit_is_clear() {
                 spi2.dr.modify(|_, w| w.dr().bits(0b1111_1111_0000_0000));
@@ -194,7 +194,7 @@ fn main() -> ! {
 #[interrupt]
 fn SPI2() {
     unsafe {
-        let spi2 = &(*pac::SPI2::ptr());
+        let spi2 = &(*stm32::SPI2::ptr());
         if spi2.sr.read().fre().bit() {
             rprintln!("Frame Error");
         }
@@ -211,18 +211,18 @@ fn SPI2() {
 fn SPI5() {
     static mut COUNT: u32 = 0;
     unsafe {
-        let spi5 = &(*pac::SPI5::ptr());
+        let spi5 = &(*stm32::SPI5::ptr());
         if spi5.sr.read().fre().bit() {
             rprintln!("SPI5 Frame Error");
             //resynchronization
             spi5.i2scfgr.modify(|_, w| w.i2se().disabled());
-            let gpiob = &(*pac::GPIOB::ptr());
+            let gpiob = &(*stm32::GPIOB::ptr());
             let ws = gpiob.idr.read().idr1().bit();
             if ws {
                 spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
                 rprintln!("Resynced (SPI5)");
             } else {
-                let exti = &(*pac::EXTI::ptr());
+                let exti = &(*stm32::EXTI::ptr());
                 exti.imr.modify(|_, w| w.mr0().set_bit());
             }
         } else if spi5.sr.read().ovr().bit() {
@@ -249,16 +249,16 @@ fn SPI5() {
 #[interrupt]
 fn EXTI0() {
     unsafe {
-        let gpiob = &(*pac::GPIOB::ptr());
+        let gpiob = &(*stm32::GPIOB::ptr());
         let ws = gpiob.idr.read().idr1().bit();
-        let exti = &(*pac::EXTI::ptr());
+        let exti = &(*stm32::EXTI::ptr());
         //erase the event
         exti.pr.modify(|_, w| w.pr0().set_bit());
         //look if ws/pb1 is high
         if ws {
             //disable EXTI0 interrupt
             exti.imr.modify(|_, w| w.mr0().clear_bit());
-            let spi5 = &(*pac::SPI5::ptr());
+            let spi5 = &(*stm32::SPI5::ptr());
             spi5.i2scfgr.modify(|_, w| w.i2se().enabled());
             rprintln!("Resynced (EXTI0)");
         }
